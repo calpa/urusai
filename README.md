@@ -82,7 +82,7 @@ docker pull calpa/urusai:latest
 docker run calpa/urusai
 
 # ⚙️ Run with custom configuration (mount your config file)
-docker run -v $(pwd)/config.json:/app/config.json calpa/urusai
+docker run -v $(pwd)/config.json:/app/config.json calpa/urusai --config config.json
 ```
 
 The Docker image is available for multiple platforms:
