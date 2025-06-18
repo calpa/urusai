@@ -123,7 +123,7 @@ docker run urusai
 
 Urusai comes with a built-in default configuration, but you can also provide your own custom configuration file. The configuration is in JSON format with the following structure:
 
-```json
+```jsonc
 {
     "max_depth": 25,      // 🕳️ Maximum crawling depth
     "min_sleep": 3,      // 💤 Minimum sleep between requests (seconds)
