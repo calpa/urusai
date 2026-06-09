@@ -19,7 +19,7 @@ func main() {
 
 	flag.StringVar(&configFile, "config", "", "path to config file")
 	flag.StringVar(&logLevel, "log", "info", "logging level (debug, info, warn, error)")
-	flag.IntVar(&timeout, "timeout", 0, "for how long the crawler should be running, in seconds (0 means no timeout)")
+	flag.IntVar(&timeout, "timeout", -1, "for how long the crawler should be running, in seconds (-1 means use config, 0 means no timeout)")
 	flag.Parse()
 
 	// Set up logging
@@ -44,8 +44,13 @@ func main() {
 		}
 	}
 
-	// Set timeout if provided
-	if timeout > 0 {
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Invalid config: %v", err)
+	}
+
+	// Override timeout if explicitly set via flag
+	if timeout >= 0 {
 		cfg.Timeout = timeout
 	}
 
