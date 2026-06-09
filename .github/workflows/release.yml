@@ -15,7 +15,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           check-latest: true
 
       - name: Run tests
@@ -24,11 +24,11 @@ jobs:
       - name: Build for all platforms
         run: |
           mkdir -p release
-          GOOS=darwin GOARCH=amd64 go build -o urusai-macos-amd64
-          GOOS=darwin GOARCH=arm64 go build -o urusai-macos-arm64
-          GOOS=linux GOARCH=amd64 go build -o urusai-linux-amd64
-          GOOS=windows GOARCH=amd64 go build -o urusai-windows-amd64.exe
-          
+          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o urusai-macos-amd64
+          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o urusai-macos-arm64
+          GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o urusai-linux-amd64
+          GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o urusai-windows-amd64.exe
+
           tar -czf release/urusai-macos-amd64.tar.gz urusai-macos-amd64
           tar -czf release/urusai-macos-arm64.tar.gz urusai-macos-arm64
           tar -czf release/urusai-linux-amd64.tar.gz urusai-linux-amd64

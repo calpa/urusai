@@ -12,13 +12,22 @@ var defaultConfigJSON embed.FS
 
 // Config represents the configuration for the crawler
 type Config struct {
-	MaxDepth        int      `json:"max_depth"`
-	MinSleep        int      `json:"min_sleep"`
-	MaxSleep        int      `json:"max_sleep"`
-	Timeout         int      `json:"timeout"`
-	RootURLs        []string `json:"root_urls"`
-	BlacklistedURLs []string `json:"blacklisted_urls"`
-	UserAgents      []string `json:"user_agents"`
+	MaxDepth        int                 `json:"max_depth"`
+	MinSleep        int                 `json:"min_sleep"`
+	MaxSleep        int                 `json:"max_sleep"`
+	Timeout         int                 `json:"timeout"`
+	RootURLs        []string            `json:"root_urls"`
+	BlacklistedURLs []string            `json:"blacklisted_urls"`
+	Blacklist       map[string]struct{} `json:"-"`
+	UserAgents      []string            `json:"user_agents"`
+}
+
+// initBlacklist populates the Blacklist map from the BlacklistedURLs slice.
+func (c *Config) initBlacklist() {
+	c.Blacklist = make(map[string]struct{}, len(c.BlacklistedURLs))
+	for _, u := range c.BlacklistedURLs {
+		c.Blacklist[u] = struct{}{}
+	}
 }
 
 // Validate checks that all required config fields have valid values.
@@ -59,11 +68,11 @@ func LoadFromFile(filePath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Convert timeout=false to 0 (no timeout)
 	if config.Timeout < 0 {
 		config.Timeout = 0
 	}
 
+	config.initBlacklist()
 	return config, nil
 }
 
@@ -80,5 +89,6 @@ func LoadDefaultConfig() (*Config, error) {
 		return nil, err
 	}
 
+	config.initBlacklist()
 	return config, nil
 }
