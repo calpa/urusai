@@ -67,7 +67,7 @@ func (c *Crawler) Crawl() {
 			log.Printf("Found %d links from %s", len(c.links), rootURL)
 
 			if len(c.links) > 0 {
-				c.browseFromLinks(0)
+				c.browseFromLinks(c.config.MaxDepth)
 				return true
 			}
 			return false
@@ -195,60 +195,52 @@ func (c *Crawler) removeAndBlacklist(link string) {
 	}
 }
 
-// browseFromLinks browses from the available links recursively
-func (c *Crawler) browseFromLinks(depth int) {
-	// Check if we've reached the maximum depth
-	if depth >= c.config.MaxDepth {
-		log.Println("Maximum depth reached, moving to next root URL")
-		return
+// browseFromLinks browses from the available links iteratively
+func (c *Crawler) browseFromLinks(maxDepth int) {
+	for depth := 0; depth < maxDepth; depth++ {
+		// Check if we have any links to browse
+		if len(c.links) == 0 {
+			log.Println("No links to browse, moving to next root URL")
+			return
+		}
+
+		// Check if timeout has been reached
+		if c.isTimeoutReached() {
+			log.Println("Timeout has been reached, exiting")
+			return
+		}
+
+		// Select a random link
+		randomIndex := rand.Intn(len(c.links))
+		randomLink := c.links[randomIndex]
+
+		log.Printf("Visiting %s (depth: %d)", randomLink, depth)
+
+		// Visit the link
+		body, err := c.request(randomLink)
+		if err != nil {
+			log.Printf("Error visiting %s: %v", randomLink, err)
+			c.removeAndBlacklist(randomLink)
+			continue
+		}
+
+		// Extract links from the page
+		subLinks := c.extractURLs(body, randomLink)
+		log.Printf("Found %d links from %s", len(subLinks), randomLink)
+
+		// Sleep for a random amount of time
+		sleepTime := time.Duration(rand.Intn(c.config.MaxSleep-c.config.MinSleep+1)+c.config.MinSleep) * time.Second
+		log.Printf("Sleeping for %v", sleepTime)
+		time.Sleep(sleepTime)
+
+		// If we found more than one link, update our links list
+		if len(subLinks) > 1 {
+			c.links = subLinks
+		} else {
+			// Otherwise, remove the current link from our list
+			c.removeAndBlacklist(randomLink)
+		}
 	}
-
-	// Check if we have any links to browse
-	if len(c.links) == 0 {
-		log.Println("No links to browse, moving to next root URL")
-		return
-	}
-
-	// Check if timeout has been reached
-	if c.isTimeoutReached() {
-		log.Println("Timeout has been reached, exiting")
-		return
-	}
-
-	// Select a random link
-	randomIndex := rand.Intn(len(c.links))
-	randomLink := c.links[randomIndex]
-
-	log.Printf("Visiting %s (depth: %d)", randomLink, depth)
-
-	// Visit the link
-	body, err := c.request(randomLink)
-	if err != nil {
-		log.Printf("Error visiting %s: %v", randomLink, err)
-		c.removeAndBlacklist(randomLink)
-		c.browseFromLinks(depth)
-		return
-	}
-
-	// Extract links from the page
-	subLinks := c.extractURLs(body, randomLink)
-	log.Printf("Found %d links from %s", len(subLinks), randomLink)
-
-	// Sleep for a random amount of time
-	sleepTime := time.Duration(rand.Intn(c.config.MaxSleep-c.config.MinSleep+1)+c.config.MinSleep) * time.Second
-	log.Printf("Sleeping for %v", sleepTime)
-	time.Sleep(sleepTime)
-
-	// If we found more than one link, update our links list
-	if len(subLinks) > 1 {
-		c.links = subLinks
-	} else {
-		// Otherwise, remove the current link from our list
-		c.removeAndBlacklist(randomLink)
-	}
-
-	// Continue browsing
-	c.browseFromLinks(depth + 1)
 }
 
 // isTimeoutReached checks if the timeout has been reached
