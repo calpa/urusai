@@ -2,9 +2,11 @@ package crawler
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -40,6 +42,15 @@ func NewCrawler(cfg *config.Config) *Crawler {
 		links:  []string{},
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("too many redirects")
+				}
+				if isPrivateURL(req.URL.String()) {
+					return fmt.Errorf("redirect to private address blocked")
+				}
+				return nil
+			},
 		},
 	}
 }
@@ -143,6 +154,45 @@ func (c *Crawler) isValidURL(urlStr string) bool {
 	return validURLRegex.MatchString(urlStr)
 }
 
+// isPrivateURL checks if a URL resolves to a private, loopback, link-local, or metadata address.
+func isPrivateURL(urlStr string) bool {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return true
+	}
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return isPrivateIP(ip)
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return true
+	}
+	for _, resolved := range ips {
+		if isPrivateIP(resolved) {
+			return true
+		}
+	}
+	return false
+}
+
+// isPrivateIP reports whether an IP falls into any blocked range.
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		if ipv4[0] == 169 && ipv4[1] == 254 {
+			return true
+		}
+	}
+	if ip.To4() == nil && len(ip) >= 1 && (ip[0]&0xfe) == 0xfc {
+		return true
+	}
+	return false
+}
+
 // isBlacklisted checks if a URL is blacklisted using the map for O(1) lookups.
 func (c *Crawler) isBlacklisted(urlStr string) bool {
 	for suffix := range c.config.Blacklist {
@@ -155,7 +205,7 @@ func (c *Crawler) isBlacklisted(urlStr string) bool {
 
 // shouldAcceptURL checks if a URL should be accepted for crawling
 func (c *Crawler) shouldAcceptURL(urlStr string) bool {
-	return urlStr != "" && c.isValidURL(urlStr) && !c.isBlacklisted(urlStr)
+	return urlStr != "" && c.isValidURL(urlStr) && !c.isBlacklisted(urlStr) && !isPrivateURL(urlStr)
 }
 
 // extractURLs extracts URLs from an HTML body

@@ -16,8 +16,6 @@ linters:
 
 linters-settings:
   gosec:
-    excludes:
-      - G107 # SSRF protection
 
 issues:
   exclude-rules:

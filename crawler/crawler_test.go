@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -73,7 +74,7 @@ func TestIsValidURL(t *testing.T) {
 		{"http://example.com/path", true},
 		{"http://localhost", true},
 		{"http://127.0.0.1", true},
-		{"http://example.com:8080", false}, // pre-existing regex doesn't support ports
+		{"http://example.com:8080", false},
 		{"ftp://example.com", false},
 		{"example.com", false},
 		{"", false},
@@ -145,5 +146,77 @@ func TestIsBlacklisted(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("isBlacklisted(%q) = %v, want %v", tt.url, got, tt.want)
 		}
+	}
+}
+
+func TestIsPrivateIP(t *testing.T) {
+	cases := []struct {
+		ip    net.IP
+		want  bool
+		label string
+	}{
+		{net.ParseIP("127.0.0.1"), true, "IPv4 loopback"},
+		{net.ParseIP("127.0.0.2"), true, "IPv4 loopback alt"},
+		{net.ParseIP("::1"), true, "IPv6 loopback"},
+		{net.ParseIP("10.0.0.1"), true, "10.0.0.0/8"},
+		{net.ParseIP("172.16.0.1"), true, "172.16.0.0/12"},
+		{net.ParseIP("192.168.1.1"), true, "192.168.0.0/16"},
+		{net.ParseIP("169.254.169.254"), true, "AWS metadata"},
+		{net.ParseIP("169.254.0.1"), true, "link-local IPv4"},
+		{net.ParseIP("fe80::1"), true, "IPv6 link-local"},
+		{net.ParseIP("fc00::1"), true, "IPv6 ULA fc00"},
+		{net.ParseIP("fd00::1"), true, "IPv6 ULA fd00"},
+		{net.ParseIP("8.8.8.8"), false, "Google DNS"},
+		{net.ParseIP("1.1.1.1"), false, "Cloudflare DNS"},
+		{net.ParseIP("203.0.113.1"), false, "public IPv4"},
+		{net.ParseIP("2606:4700:4700::1111"), false, "public IPv6"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			got := isPrivateIP(tc.ip)
+			if got != tc.want {
+				t.Errorf("isPrivateIP(%v) = %v, want %v", tc.ip, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsPrivateURL_LiteralIPs(t *testing.T) {
+	cases := []struct {
+		url   string
+		want  bool
+		label string
+	}{
+		{"http://127.0.0.1", true, "loopback"},
+		{"http://10.0.0.1/path", true, "private 10.x"},
+		{"http://172.16.0.1", true, "private 172.16.x"},
+		{"http://192.168.1.1", true, "private 192.168.x"},
+		{"http://169.254.169.254/latest", true, "AWS metadata"},
+		{"http://[::1]", true, "IPv6 loopback"},
+		{"http://[fc00::1]", true, "IPv6 ULA"},
+		{"http://[fe80::1]", true, "IPv6 link-local"},
+		{"http://8.8.8.8", false, "public IP"},
+		{"http://1.1.1.1:8080", false, "public IP with port"},
+		{"http://[2606:4700::1111]", false, "public IPv6"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			got := isPrivateURL(tc.url)
+			if got != tc.want {
+				t.Errorf("isPrivateURL(%q) = %v, want %v", tc.url, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsPrivateURL_Unparseable(t *testing.T) {
+	if !isPrivateURL("://not-a-url") {
+		t.Error("unparseable URL should be treated as private")
+	}
+}
+
+func TestIsPrivateIP_Nil(t *testing.T) {
+	if isPrivateIP(nil) {
+		t.Error("nil IP should not be private")
 	}
 }
