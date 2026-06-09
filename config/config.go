@@ -16,6 +16,7 @@ type Config struct {
 	MinSleep        int                 `json:"min_sleep"`
 	MaxSleep        int                 `json:"max_sleep"`
 	Timeout         int                 `json:"timeout"`
+	Concurrency     int                 `json:"concurrency"`
 	RootURLs        []string            `json:"root_urls"`
 	BlacklistedURLs []string            `json:"blacklisted_urls"`
 	Blacklist       map[string]struct{} `json:"-"`
@@ -49,6 +50,9 @@ func (c *Config) Validate() error {
 	}
 	if len(c.UserAgents) == 0 {
 		return fmt.Errorf("config: user_agents must not be empty")
+	}
+	if c.Concurrency <= 0 {
+		c.Concurrency = 1
 	}
 	return nil
 }
