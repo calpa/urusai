@@ -3,6 +3,7 @@ package config
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -18,6 +19,29 @@ type Config struct {
 	RootURLs        []string `json:"root_urls"`
 	BlacklistedURLs []string `json:"blacklisted_urls"`
 	UserAgents      []string `json:"user_agents"`
+}
+
+// Validate checks that all required config fields have valid values.
+func (c *Config) Validate() error {
+	if c.MaxDepth <= 0 {
+		return fmt.Errorf("config: max_depth must be > 0, got %d", c.MaxDepth)
+	}
+	if c.MinSleep <= 0 {
+		return fmt.Errorf("config: min_sleep must be > 0, got %d", c.MinSleep)
+	}
+	if c.MaxSleep <= 0 {
+		return fmt.Errorf("config: max_sleep must be > 0, got %d", c.MaxSleep)
+	}
+	if c.MinSleep > c.MaxSleep {
+		return fmt.Errorf("config: min_sleep (%d) must be <= max_sleep (%d)", c.MinSleep, c.MaxSleep)
+	}
+	if len(c.RootURLs) == 0 {
+		return fmt.Errorf("config: root_urls must not be empty")
+	}
+	if len(c.UserAgents) == 0 {
+		return fmt.Errorf("config: user_agents must not be empty")
+	}
+	return nil
 }
 
 // LoadFromFile loads configuration from a JSON file
