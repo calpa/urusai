@@ -12,7 +12,7 @@ import (
 )
 
 func testConfig() *config.Config {
-	return &config.Config{
+	cfg := &config.Config{
 		RootURLs:        []string{"http://example.com"},
 		BlacklistedURLs: []string{},
 		UserAgents:      []string{"test-bot"},
@@ -21,6 +21,8 @@ func testConfig() *config.Config {
 		MaxDepth:        3,
 		Timeout:         60,
 	}
+	cfg.Blacklist = make(map[string]struct{})
+	return cfg
 }
 
 func TestRequestBodyCompleteness(t *testing.T) {
@@ -123,6 +125,10 @@ func TestExtractURLsRelativeResolution(t *testing.T) {
 func TestIsBlacklisted(t *testing.T) {
 	cfg := testConfig()
 	cfg.BlacklistedURLs = []string{"/login", "/admin"}
+	cfg.Blacklist = map[string]struct{}{
+		"/login": {},
+		"/admin": {},
+	}
 	c := NewCrawler(cfg)
 
 	tests := []struct {

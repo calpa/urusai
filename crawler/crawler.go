@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -61,8 +61,7 @@ func (c *Crawler) Crawl(ctx context.Context) {
 			return
 		}
 
-		// Select a random root URL
-		rootURL := c.config.RootURLs[rand.Intn(len(c.config.RootURLs))]
+		rootURL := c.config.RootURLs[rand.N(len(c.config.RootURLs))]
 		log.Printf("Starting with root URL: %s", rootURL)
 
 		try := func() bool {
@@ -82,7 +81,6 @@ func (c *Crawler) Crawl(ctx context.Context) {
 			return false
 		}
 
-		// Try to crawl, if failed, try another root URL
 		if !try() {
 			continue
 		}
@@ -96,8 +94,7 @@ func (c *Crawler) request(ctx context.Context, urlStr string) (string, error) {
 		return "", err
 	}
 
-	// Set a random user agent
-	userAgent := c.config.UserAgents[rand.Intn(len(c.config.UserAgents))]
+	userAgent := c.config.UserAgents[rand.N(len(c.config.UserAgents))]
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.httpClient.Do(req)
@@ -116,7 +113,6 @@ func (c *Crawler) request(ctx context.Context, urlStr string) (string, error) {
 
 // normalizeLink converts relative URLs to absolute URLs
 func (c *Crawler) normalizeLink(link, rootURL string) string {
-	// Handle URLs that start with //
 	if strings.HasPrefix(link, "//") {
 		parsedRoot, err := url.Parse(rootURL)
 		if err != nil {
@@ -125,18 +121,15 @@ func (c *Crawler) normalizeLink(link, rootURL string) string {
 		return parsedRoot.Scheme + ":" + link
 	}
 
-	// Parse the URL
 	parsedURL, err := url.Parse(link)
 	if err != nil {
 		return ""
 	}
 
-	// If it's already an absolute URL, return it
 	if parsedURL.Scheme != "" {
 		return link
 	}
 
-	// Join the root URL with the relative URL
 	base, err := url.Parse(rootURL)
 	if err != nil {
 		return ""
@@ -150,10 +143,10 @@ func (c *Crawler) isValidURL(urlStr string) bool {
 	return validURLRegex.MatchString(urlStr)
 }
 
-// isBlacklisted checks if a URL is blacklisted
+// isBlacklisted checks if a URL is blacklisted using the map for O(1) lookups.
 func (c *Crawler) isBlacklisted(urlStr string) bool {
-	for _, blacklisted := range c.config.BlacklistedURLs {
-		if strings.Contains(urlStr, blacklisted) {
+	for suffix := range c.config.Blacklist {
+		if strings.Contains(urlStr, suffix) {
 			return true
 		}
 	}
@@ -172,15 +165,12 @@ func (c *Crawler) extractURLs(body, rootURL string) []string {
 	var urls []string
 	for _, match := range matches {
 		if len(match) > 1 {
-			// Ignore fragment links (links starting with #)
 			if strings.HasPrefix(match[1], "#") {
 				continue
 			}
 
-			// Normalize the link
 			normalizedURL := c.normalizeLink(match[1], rootURL)
 
-			// Check if the URL should be accepted
 			if c.shouldAcceptURL(normalizedURL) {
 				urls = append(urls, normalizedURL)
 			}
@@ -190,12 +180,10 @@ func (c *Crawler) extractURLs(body, rootURL string) []string {
 	return urls
 }
 
-// removeAndBlacklist removes a link from the links list and adds it to the blacklist
+// removeAndBlacklist removes a link from the links list and adds it to the blacklist map.
 func (c *Crawler) removeAndBlacklist(link string) {
-	// Add to blacklist
-	c.config.BlacklistedURLs = append(c.config.BlacklistedURLs, link)
+	c.config.Blacklist[link] = struct{}{}
 
-	// Remove from links
 	for i, l := range c.links {
 		if l == link {
 			c.links = append(c.links[:i], c.links[i+1:]...)
@@ -207,7 +195,6 @@ func (c *Crawler) removeAndBlacklist(link string) {
 // browseFromLinks browses from the available links iteratively
 func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 	for depth := 0; depth < maxDepth; depth++ {
-		// Check context cancellation
 		select {
 		case <-ctx.Done():
 			log.Println("Shutdown signal received")
@@ -215,25 +202,21 @@ func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 		default:
 		}
 
-		// Check if we have any links to browse
 		if len(c.links) == 0 {
 			log.Println("No links to browse, moving to next root URL")
 			return
 		}
 
-		// Check if timeout has been reached
 		if c.isTimeoutReached() {
 			log.Println("Timeout has been reached, exiting")
 			return
 		}
 
-		// Select a random link
-		randomIndex := rand.Intn(len(c.links))
+		randomIndex := rand.N(len(c.links))
 		randomLink := c.links[randomIndex]
 
 		log.Printf("Visiting %s (depth: %d)", randomLink, depth)
 
-		// Visit the link
 		body, err := c.request(ctx, randomLink)
 		if err != nil {
 			log.Printf("Error visiting %s: %v", randomLink, err)
@@ -241,20 +224,16 @@ func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 			continue
 		}
 
-		// Extract links from the page
 		subLinks := c.extractURLs(body, randomLink)
 		log.Printf("Found %d links from %s", len(subLinks), randomLink)
 
-		// Sleep for a random amount of time
-		sleepTime := time.Duration(rand.Intn(c.config.MaxSleep-c.config.MinSleep+1)+c.config.MinSleep) * time.Second
+		sleepTime := time.Duration(rand.IntN(c.config.MaxSleep-c.config.MinSleep+1)+c.config.MinSleep) * time.Second
 		log.Printf("Sleeping for %v", sleepTime)
 		time.Sleep(sleepTime)
 
-		// If we found more than one link, update our links list
 		if len(subLinks) > 1 {
 			c.links = subLinks
 		} else {
-			// Otherwise, remove the current link from our list
 			c.removeAndBlacklist(randomLink)
 		}
 	}
@@ -262,12 +241,10 @@ func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 
 // isTimeoutReached checks if the timeout has been reached
 func (c *Crawler) isTimeoutReached() bool {
-	// If timeout is 0, it means no timeout
 	if c.config.Timeout == 0 {
 		return false
 	}
 
-	// Check if the current time exceeds the start time plus the timeout
 	timeoutDuration := time.Duration(c.config.Timeout) * time.Second
 	return time.Since(c.startTime) > timeoutDuration
 }
