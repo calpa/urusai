@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +32,7 @@ func TestRequestBodyCompleteness(t *testing.T) {
 	defer ts.Close()
 
 	c := NewCrawler(testConfig())
-	got, err := c.request(ts.URL)
+	got, err := c.request(context.Background(), ts.URL)
 	if err != nil {
 		t.Fatalf("request(%q) returned error: %v", ts.URL, err)
 	}
@@ -48,7 +49,7 @@ func TestRequestLargeBodyCapped(t *testing.T) {
 	defer ts.Close()
 
 	c := NewCrawler(testConfig())
-	got, err := c.request(ts.URL)
+	got, err := c.request(context.Background(), ts.URL)
 	if err != nil {
 		t.Fatalf("request returned error: %v", err)
 	}
