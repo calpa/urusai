@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -10,6 +11,16 @@ import (
 	"time"
 
 	"github.com/calpa/urusai/config"
+)
+var (
+	validURLRegex = regexp.MustCompile(
+		`(?i)^(?:http|https)s?://` +
+			`(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|` +
+			`localhost|` +
+			`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})` +
+			`(?:\d+)?` +
+			`(?:/?|[/?]\S+)$`)
+	hrefRegex = regexp.MustCompile(`href=["'](.*?)["']`)
 )
 
 // Crawler represents a web crawler that generates random HTTP traffic
@@ -86,10 +97,12 @@ func (c *Crawler) request(urlStr string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	// Read the response body
-	buf := make([]byte, 1024*1024) // 1MB buffer
-	n, _ := resp.Body.Read(buf)
-	return string(buf[:n]), nil
+	// Read the response body, capped at 1MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
 }
 
 // normalizeLink converts relative URLs to absolute URLs
@@ -125,15 +138,7 @@ func (c *Crawler) normalizeLink(link, rootURL string) string {
 
 // isValidURL checks if a URL is valid
 func (c *Crawler) isValidURL(urlStr string) bool {
-	// Regular expression for validating URLs
-	regex := regexp.MustCompile(
-		`(?i)^(?:http|https)s?://` + // http:// or https:// (case insensitive with (?i))
-			`(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|` + // domain
-			`localhost|` + // localhost
-			`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})` + // or IP
-			`(?:\d+)?` + // optional port
-			`(?:/?|[/?]\S+)$`) // path
-	return regex.MatchString(urlStr)
+	return validURLRegex.MatchString(urlStr)
 }
 
 // isBlacklisted checks if a URL is blacklisted
@@ -153,10 +158,7 @@ func (c *Crawler) shouldAcceptURL(urlStr string) bool {
 
 // extractURLs extracts URLs from an HTML body
 func (c *Crawler) extractURLs(body, rootURL string) []string {
-	// Extract href attributes
-	pattern := `href=["'](.*?)["']`
-	regex := regexp.MustCompile(pattern)
-	matches := regex.FindAllStringSubmatch(body, -1)
+	matches := hrefRegex.FindAllStringSubmatch(body, -1)
 
 	var urls []string
 	for _, match := range matches {
