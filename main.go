@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -58,18 +58,12 @@ func main() {
 	c := crawler.NewCrawler(cfg)
 
 	// Handle graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		log.Println("Received shutdown signal, exiting gracefully...")
-		os.Exit(0)
-	}()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Start crawling
 	log.Println("Starting urusai - HTTP/DNS traffic noise generator")
-	c.Crawl()
+	c.Crawl(ctx)
 }
 
 func setLogLevel(level string) {

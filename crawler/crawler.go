@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"context"
 	"io"
 	"log"
 	"math/rand"
@@ -12,13 +13,14 @@ import (
 
 	"github.com/calpa/urusai/config"
 )
+
 var (
 	validURLRegex = regexp.MustCompile(
-		`(?i)^(?:http|https)s?://` +
-			`(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|` +
-			`localhost|` +
-			`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})` +
-			`(?:\d+)?` +
+		`(?i)^(?:http|https)s?://`+
+			`(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|`+
+			`localhost|`+
+			`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`+
+			`(?:\d+)?`+
 			`(?:/?|[/?]\S+)$`)
 	hrefRegex = regexp.MustCompile(`href=["'](.*?)["']`)
 )
@@ -43,10 +45,17 @@ func NewCrawler(cfg *config.Config) *Crawler {
 }
 
 // Crawl starts the crawling process
-func (c *Crawler) Crawl() {
+func (c *Crawler) Crawl(ctx context.Context) {
 	c.startTime = time.Now()
 
 	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Shutdown signal received")
+			return
+		default:
+		}
+
 		if c.isTimeoutReached() {
 			log.Println("Timeout has been reached, exiting")
 			return
@@ -57,7 +66,7 @@ func (c *Crawler) Crawl() {
 		log.Printf("Starting with root URL: %s", rootURL)
 
 		try := func() bool {
-			body, err := c.request(rootURL)
+			body, err := c.request(ctx, rootURL)
 			if err != nil {
 				log.Printf("Error connecting to root URL %s: %v", rootURL, err)
 				return false
@@ -67,7 +76,7 @@ func (c *Crawler) Crawl() {
 			log.Printf("Found %d links from %s", len(c.links), rootURL)
 
 			if len(c.links) > 0 {
-				c.browseFromLinks(c.config.MaxDepth)
+				c.browseFromLinks(ctx, c.config.MaxDepth)
 				return true
 			}
 			return false
@@ -81,8 +90,8 @@ func (c *Crawler) Crawl() {
 }
 
 // request sends an HTTP request to the given URL with a random user agent
-func (c *Crawler) request(urlStr string) (string, error) {
-	req, err := http.NewRequest("GET", urlStr, nil)
+func (c *Crawler) request(ctx context.Context, urlStr string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return "", err
 	}
@@ -196,8 +205,16 @@ func (c *Crawler) removeAndBlacklist(link string) {
 }
 
 // browseFromLinks browses from the available links iteratively
-func (c *Crawler) browseFromLinks(maxDepth int) {
+func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 	for depth := 0; depth < maxDepth; depth++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			log.Println("Shutdown signal received")
+			return
+		default:
+		}
+
 		// Check if we have any links to browse
 		if len(c.links) == 0 {
 			log.Println("No links to browse, moving to next root URL")
@@ -217,7 +234,7 @@ func (c *Crawler) browseFromLinks(maxDepth int) {
 		log.Printf("Visiting %s (depth: %d)", randomLink, depth)
 
 		// Visit the link
-		body, err := c.request(randomLink)
+		body, err := c.request(ctx, randomLink)
 		if err != nil {
 			log.Printf("Error visiting %s: %v", randomLink, err)
 			c.removeAndBlacklist(randomLink)
