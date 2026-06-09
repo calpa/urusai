@@ -15,9 +15,20 @@ type Config struct {
 	MinSleep        int      `json:"min_sleep"`
 	MaxSleep        int      `json:"max_sleep"`
 	Timeout         int      `json:"timeout"`
+	Concurrency     int      `json:"concurrency"`
 	RootURLs        []string `json:"root_urls"`
 	BlacklistedURLs []string `json:"blacklisted_urls"`
 	UserAgents      []string `json:"user_agents"`
+}
+
+// Validate checks configuration values and applies defaults.
+func (c *Config) Validate() {
+	if c.Concurrency <= 0 {
+		c.Concurrency = 1
+	}
+	if c.Timeout < 0 {
+		c.Timeout = 0
+	}
 }
 
 // LoadFromFile loads configuration from a JSON file
@@ -35,11 +46,7 @@ func LoadFromFile(filePath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Convert timeout=false to 0 (no timeout)
-	if config.Timeout < 0 {
-		config.Timeout = 0
-	}
-
+	config.Validate()
 	return config, nil
 }
 
@@ -56,5 +63,6 @@ func LoadDefaultConfig() (*Config, error) {
 		return nil, err
 	}
 
+	config.Validate()
 	return config, nil
 }

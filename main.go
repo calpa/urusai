@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -12,7 +12,6 @@ import (
 )
 
 func main() {
-	// Parse command line arguments
 	var configFile string
 	var logLevel string
 	var timeout int
@@ -22,49 +21,35 @@ func main() {
 	flag.IntVar(&timeout, "timeout", 0, "for how long the crawler should be running, in seconds (0 means no timeout)")
 	flag.Parse()
 
-	// Set up logging
 	setLogLevel(logLevel)
 
-	// Load configuration
 	var cfg *config.Config
 	var err error
 
 	if configFile == "" {
-		// Use default configuration if no config file is specified
 		log.Println("No config file specified, using default configuration")
 		cfg, err = config.LoadDefaultConfig()
 		if err != nil {
 			log.Fatalf("Failed to load default config: %v", err)
 		}
 	} else {
-		// Load configuration from file
 		cfg, err = config.LoadFromFile(configFile)
 		if err != nil {
 			log.Fatalf("Failed to load config: %v", err)
 		}
 	}
 
-	// Set timeout if provided
 	if timeout > 0 {
 		cfg.Timeout = timeout
 	}
 
-	// Create and start crawler
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	c := crawler.NewCrawler(cfg)
 
-	// Handle graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		log.Println("Received shutdown signal, exiting gracefully...")
-		os.Exit(0)
-	}()
-
-	// Start crawling
 	log.Println("Starting urusai - HTTP/DNS traffic noise generator")
-	c.Crawl()
+	c.Crawl(ctx)
 }
 
 func setLogLevel(level string) {

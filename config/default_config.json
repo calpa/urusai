@@ -3,6 +3,7 @@
     "min_sleep": 3,
     "max_sleep": 6,
     "timeout": 0,
+    "concurrency": 3,
     "root_urls": [
         "https://www.wikipedia.org",
         "https://www.github.com",
