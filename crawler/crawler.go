@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/calpa/urusai/config"
@@ -30,6 +31,7 @@ var (
 // Crawler represents a web crawler that generates random HTTP traffic
 type Crawler struct {
 	config     *config.Config
+	mu         sync.Mutex
 	links      []string
 	startTime  time.Time
 	httpClient *http.Client
@@ -55,45 +57,54 @@ func NewCrawler(cfg *config.Config) *Crawler {
 	}
 }
 
-// Crawl starts the crawling process
+// Crawl starts the crawling process with concurrent workers.
 func (c *Crawler) Crawl(ctx context.Context) {
 	c.startTime = time.Now()
 
+	var wg sync.WaitGroup
+	for i := 0; i < c.config.Concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.worker(ctx)
+		}()
+	}
+	wg.Wait()
+}
+
+// worker is the main loop for a single concurrent crawler.
+func (c *Crawler) worker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Shutdown signal received")
 			return
 		default:
 		}
 
 		if c.isTimeoutReached() {
-			log.Println("Timeout has been reached, exiting")
 			return
 		}
 
+		c.mu.Lock()
 		rootURL := c.config.RootURLs[rand.N(len(c.config.RootURLs))]
+		c.mu.Unlock()
+
 		log.Printf("Starting with root URL: %s", rootURL)
 
-		try := func() bool {
-			body, err := c.request(ctx, rootURL)
-			if err != nil {
-				log.Printf("Error connecting to root URL %s: %v", rootURL, err)
-				return false
-			}
-
-			c.links = c.extractURLs(body, rootURL)
-			log.Printf("Found %d links from %s", len(c.links), rootURL)
-
-			if len(c.links) > 0 {
-				c.browseFromLinks(ctx, c.config.MaxDepth)
-				return true
-			}
-			return false
+		body, err := c.request(ctx, rootURL)
+		if err != nil {
+			log.Printf("Error connecting to root URL %s: %v", rootURL, err)
+			continue
 		}
 
-		if !try() {
-			continue
+		c.mu.Lock()
+		c.links = c.extractURLs(body, rootURL)
+		linkCount := len(c.links)
+		c.mu.Unlock()
+		log.Printf("Found %d links from %s", linkCount, rootURL)
+
+		if linkCount > 0 {
+			c.browseFromLinks(ctx, c.config.MaxDepth)
 		}
 	}
 }
@@ -230,10 +241,9 @@ func (c *Crawler) extractURLs(body, rootURL string) []string {
 	return urls
 }
 
-// removeAndBlacklist removes a link from the links list and adds it to the blacklist map.
+// removeAndBlacklist removes a link and adds to blacklist. Caller must hold c.mu.
 func (c *Crawler) removeAndBlacklist(link string) {
 	c.config.Blacklist[link] = struct{}{}
-
 	for i, l := range c.links {
 		if l == link {
 			c.links = append(c.links[:i], c.links[i+1:]...)
@@ -241,36 +251,39 @@ func (c *Crawler) removeAndBlacklist(link string) {
 		}
 	}
 }
-
-// browseFromLinks browses from the available links iteratively
+// browseFromLinks browses from the available links iteratively.
 func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 	for depth := 0; depth < maxDepth; depth++ {
 		select {
 		case <-ctx.Done():
-			log.Println("Shutdown signal received")
 			return
 		default:
 		}
 
-		if len(c.links) == 0 {
-			log.Println("No links to browse, moving to next root URL")
+		c.mu.Lock()
+		linkCount := len(c.links)
+		c.mu.Unlock()
+		if linkCount == 0 {
 			return
 		}
 
 		if c.isTimeoutReached() {
-			log.Println("Timeout has been reached, exiting")
 			return
 		}
 
+		c.mu.Lock()
 		randomIndex := rand.N(len(c.links))
 		randomLink := c.links[randomIndex]
+		c.mu.Unlock()
 
 		log.Printf("Visiting %s (depth: %d)", randomLink, depth)
 
 		body, err := c.request(ctx, randomLink)
 		if err != nil {
 			log.Printf("Error visiting %s: %v", randomLink, err)
+			c.mu.Lock()
 			c.removeAndBlacklist(randomLink)
+			c.mu.Unlock()
 			continue
 		}
 
@@ -279,16 +292,22 @@ func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 
 		sleepTime := time.Duration(rand.IntN(c.config.MaxSleep-c.config.MinSleep+1)+c.config.MinSleep) * time.Second
 		log.Printf("Sleeping for %v", sleepTime)
-		time.Sleep(sleepTime)
+		select {
+		case <-time.After(sleepTime):
+		case <-ctx.Done():
+			return
+		}
 
+		c.mu.Lock()
 		if len(subLinks) > 1 {
 			c.links = subLinks
 		} else {
 			c.removeAndBlacklist(randomLink)
 		}
+		c.mu.Unlock()
 	}
-}
 
+}
 // isTimeoutReached checks if the timeout has been reached
 func (c *Crawler) isTimeoutReached() bool {
 	if c.config.Timeout == 0 {
