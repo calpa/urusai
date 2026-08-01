@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [1.1.1] - 2026-08-01
+
+### Bug Fixes
+
+- **Concurrent map crash** — Blacklist map was iterated in `isBlacklisted` without a lock while `removeAndBlacklist` wrote it under `mu`, causing a `fatal error: concurrent map iteration and map write` panic after a few hours with `concurrency > 1`. The blacklist now has a dedicated `sync.RWMutex` (`blMu`), decoupled from `mu` (which guards `links`) so reads never deadlock with the locked `extractURLs` call path.
+
 ## [1.1.0] - 2026-06-09
 
 ### Features
@@ -24,3 +31,4 @@ All notable changes to this project will be documented in this file.
 - **Module import paths** — Fixed to use `github.com/calpa/urusai` consistently
 
 [v1.1.0]: https://github.com/calpa/urusai/compare/v1.0.3...v1.1.0
+[v1.1.1]: https://github.com/calpa/urusai/compare/v1.1.0...v1.1.1

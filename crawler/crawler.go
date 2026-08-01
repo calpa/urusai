@@ -19,11 +19,11 @@ import (
 
 var (
 	validURLRegex = regexp.MustCompile(
-		`(?i)^(?:http|https)s?://`+
-			`(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|`+
-			`localhost|`+
-			`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`+
-			`(?:\d+)?`+
+		`(?i)^(?:http|https)s?://` +
+			`(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|` +
+			`localhost|` +
+			`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})` +
+			`(?:\d+)?` +
 			`(?:/?|[/?]\S+)$`)
 	hrefRegex = regexp.MustCompile(`href=["'](.*?)["']`)
 )
@@ -31,7 +31,8 @@ var (
 // Crawler represents a web crawler that generates random HTTP traffic
 type Crawler struct {
 	config     *config.Config
-	mu         sync.Mutex
+	mu         sync.Mutex   // protects links
+	blMu       sync.RWMutex // protects config.Blacklist (independent of mu)
 	links      []string
 	startTime  time.Time
 	httpClient *http.Client
@@ -204,8 +205,11 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// isBlacklisted checks if a URL is blacklisted using the map for O(1) lookups.
+// isBlacklisted checks if a URL is blacklisted. Safe for concurrent use:
+// blMu is independent of mu, so this may be called with or without holding mu.
 func (c *Crawler) isBlacklisted(urlStr string) bool {
+	c.blMu.RLock()
+	defer c.blMu.RUnlock()
 	for suffix := range c.config.Blacklist {
 		if strings.Contains(urlStr, suffix) {
 			return true
@@ -241,9 +245,12 @@ func (c *Crawler) extractURLs(body, rootURL string) []string {
 	return urls
 }
 
-// removeAndBlacklist removes a link and adds to blacklist. Caller must hold c.mu.
+// removeAndBlacklist removes a link and adds to blacklist.
+// Caller must hold c.mu (protects links); the blacklist write takes blMu.
 func (c *Crawler) removeAndBlacklist(link string) {
+	c.blMu.Lock()
 	c.config.Blacklist[link] = struct{}{}
+	c.blMu.Unlock()
 	for i, l := range c.links {
 		if l == link {
 			c.links = append(c.links[:i], c.links[i+1:]...)
@@ -251,6 +258,7 @@ func (c *Crawler) removeAndBlacklist(link string) {
 		}
 	}
 }
+
 // browseFromLinks browses from the available links iteratively.
 func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 	for depth := 0; depth < maxDepth; depth++ {
@@ -308,6 +316,7 @@ func (c *Crawler) browseFromLinks(ctx context.Context, maxDepth int) {
 	}
 
 }
+
 // isTimeoutReached checks if the timeout has been reached
 func (c *Crawler) isTimeoutReached() bool {
 	if c.config.Timeout == 0 {

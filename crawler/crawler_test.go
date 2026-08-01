@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/calpa/urusai/config"
 )
@@ -147,6 +149,53 @@ func TestIsBlacklisted(t *testing.T) {
 			t.Errorf("isBlacklisted(%q) = %v, want %v", tt.url, got, tt.want)
 		}
 	}
+}
+
+// TestBlacklistConcurrentAccess verifies isBlacklisted (read) and
+// removeAndBlacklist (write) run concurrently without a data race.
+// Before the blMu fix, iterating the blacklist map while another goroutine
+// wrote it caused a fatal "concurrent map iteration and map write" panic.
+// Run with -race for full coverage.
+func TestBlacklistConcurrentAccess(t *testing.T) {
+	cfg := testConfig()
+	c := NewCrawler(cfg)
+	c.links = []string{"http://example.com/a", "http://example.com/b", "http://example.com/c"}
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Readers: hammer isBlacklisted.
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					c.isBlacklisted("http://example.com/a")
+				}
+			}
+		}()
+	}
+
+	// Writers: add blacklist entries under mu (as the crawler does).
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				c.mu.Lock()
+				c.removeAndBlacklist(fmt.Sprintf("http://example.com/bl-%d-%d", n, j))
+				c.mu.Unlock()
+			}
+		}(i)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	close(done)
+	wg.Wait()
 }
 
 func TestIsPrivateIP(t *testing.T) {
